@@ -62,8 +62,10 @@ def run(cmd):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
-
+    return send_file(BASE / "index.html")
+@app.get("/static/style.css")
+def style():
+    return send_file(BASE / "style.css", mimetype="text/css")
 @app.post("/api/render")
 def render():
     job_id = uuid.uuid4().hex
