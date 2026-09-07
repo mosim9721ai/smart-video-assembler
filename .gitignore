@@ -1,0 +1,4 @@
+jobs/
+stick_frames/
+__pycache__/
+*.pyc

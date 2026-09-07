@@ -40,6 +40,63 @@ div class="grid">
 <section class="card muted">
 <b>How sync works:</b> image 1 → SRT cue 1, image 2 → cue 2, etc. Each image stays on screen for that cue's exact timestamp. Extra images are ignored; if images are fewer than cues, the last image is held so the render does not break.
 </section>
+
+<section class="card">
+<h1>🤸 Stick Figure Video</h1>
+<p class="muted">100% offline. No API, no account, no cost — sirf server ka FFmpeg use hota hai.</p>
+
+<label>Mode</label>
+<select id="sfMode">
+  <option value="single">Single action</option>
+  <option value="sequence">Multi-scene story</option>
+</select>
+
+<div id="sfSingle">
+  <label>Action</label>
+  <select id="sfAction">
+    <option value="walking">Walking</option>
+    <option value="running">Running</option>
+    <option value="waving">Waving</option>
+    <option value="jumping">Jumping</option>
+    <option value="dancing">Dancing</option>
+    <option value="thinking">Thinking</option>
+    <option value="idle">Idle</option>
+  </select>
+  <label>Duration (seconds)</label>
+  <input id="sfDuration" type="number" min="0.5" max="30" step="0.5" value="3">
+  <label>Caption (optional)</label>
+  <input id="sfCaption" type="text" placeholder="e.g. Namaste!">
+</div>
+
+<div id="sfSeq" style="display:none">
+  <label>Scenes JSON</label>
+  <textarea id="sfScenes" rows="8" style="width:100%;font-family:monospace;font-size:12px">[
+  {"action":"idle","duration":1,"caption":"Hi!"},
+  {"action":"waving","duration":2,"caption":"Namaste"},
+  {"action":"walking","duration":2,"caption":"Chalo"},
+  {"action":"jumping","duration":1.5,"caption":"Yay!"},
+  {"action":"dancing","duration":2,"caption":"Party"}
+]</textarea>
+</div>
+
+<div class="grid">
+<div><label>Aspect ratio</label>
+<select id="sfRatio">
+  <option value="1:1">1:1 Square</option>
+  <option value="9:16">9:16 Shorts/Reels</option>
+  <option value="16:9">16:9 YouTube</option>
+</select></div>
+<div><label>FPS</label><select id="sfFps"><option>30</option><option>24</option><option>60</option></select></div>
+</div>
+
+<label>Theme</label>
+<select id="sfTheme"><option value="light">Light</option><option value="dark">Dark</option></select>
+
+<button id="sfGo">🎨 GENERATE STICK FIGURE VIDEO</button>
+<pre id="sfStatus">Ready.</pre>
+<video id="sfPreview" controls playsinline></video>
+<a id="sfDownload" class="button hidden" href="#">⬇️ SAVE MP4</a>
+</section>
 </main>
 <script>
 const $=x=>document.getElementById(x);
@@ -59,6 +116,44 @@ $('go').onclick=async()=>{
    $('download').href=data.download; $('download').classList.remove('hidden');
  }catch(e){$('bar').style.width='0%';$('status').textContent='❌ '+e.message}
  finally{$('go').disabled=false}
+};
+
+$('sfMode').onchange=()=>{
+  const seq=$('sfMode').value==='sequence';
+  $('sfSingle').style.display=seq?'none':'';
+  $('sfSeq').style.display=seq?'':'none';
+};
+
+$('sfGo').onclick=async()=>{
+  const mode=$('sfMode').value;
+  const body={
+    ratio:$('sfRatio').value,
+    fps:parseInt($('sfFps').value,10),
+    theme:$('sfTheme').value,
+  };
+  if(mode==='sequence'){
+    try{ body.scenes=JSON.parse($('sfScenes').value); }
+    catch(e){ $('sfStatus').textContent='❌ Scenes JSON invalid: '+e.message; return; }
+  } else {
+    body.action=$('sfAction').value;
+    body.duration=parseFloat($('sfDuration').value);
+    body.caption=$('sfCaption').value||null;
+  }
+  $('sfGo').disabled=true;
+  $('sfStatus').textContent='🎨 Rendering frames…';
+  try{
+    const r=await fetch('/api/stick/render',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body),
+    });
+    const data=await r.json();
+    if(!r.ok||!data.ok) throw new Error(data.error||'Render failed');
+    $('sfStatus').textContent=`✅ Ready! ${data.duration.toFixed(1)}s @ ${data.fps}fps (${data.width}×${data.height})`;
+    $('sfPreview').src=data.download; $('sfPreview').classList.add('show');
+    $('sfDownload').href=data.download; $('sfDownload').classList.remove('hidden');
+  }catch(e){ $('sfStatus').textContent='❌ '+e.message; }
+  finally{ $('sfGo').disabled=false; }
 };
 </script>
 </body>

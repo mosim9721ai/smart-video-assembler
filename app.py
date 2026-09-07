@@ -2,6 +2,8 @@ import os, re, uuid, shutil, zipfile, subprocess, json
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
 
+from stick_figure import ANIMATIONS, render_animation, render_sequence
+
 BASE = Path(__file__).resolve().parent
 WORK = BASE / "jobs"
 WORK.mkdir(exist_ok=True)
@@ -283,6 +285,109 @@ def download(job_id):
         download_name="assembled_video.mp4",
         mimetype="video/mp4",
     )
+
+
+STICK_RATIOS = {
+    "1:1": (720, 720),
+    "9:16": (540, 960),
+    "16:9": (960, 540),
+}
+
+
+@app.get("/api/stick/actions")
+def stick_actions():
+    return jsonify(actions=sorted(ANIMATIONS.keys()))
+
+
+@app.post("/api/stick/render")
+def stick_render():
+    job_id = uuid.uuid4().hex
+    job = WORK / job_id
+    job.mkdir()
+
+    try:
+        data = request.get_json(silent=True) or {}
+        ratio = data.get("ratio", "1:1")
+        fps = int(data.get("fps", 30))
+        theme = data.get("theme", "light")
+        w, h = STICK_RATIOS.get(ratio, STICK_RATIOS["1:1"])
+
+        if fps not in (24, 30, 60):
+            fps = 30
+        if theme not in ("light", "dark"):
+            theme = "light"
+
+        output = job / "assembled_video.mp4"
+        frames_dir = job / "frames"
+
+        scenes = data.get("scenes")
+        if scenes:
+            if not isinstance(scenes, list) or not scenes:
+                raise RuntimeError("scenes must be a non-empty list")
+            for s in scenes:
+                if s.get("action") not in ANIMATIONS:
+                    raise RuntimeError(
+                        f"Unknown action: {s.get('action')!r}"
+                    )
+                s["duration"] = max(0.2, min(30.0, float(s.get("duration", 2))))
+            render_sequence(
+                scenes,
+                fps=fps,
+                size=(w, h),
+                theme=theme,
+                output=output,
+                workdir=frames_dir,
+            )
+            total = sum(s["duration"] for s in scenes)
+            meta = {
+                "job_id": job_id,
+                "mode": "sequence",
+                "scene_count": len(scenes),
+                "duration": total,
+                "fps": fps,
+                "ratio": ratio,
+                "width": w,
+                "height": h,
+                "theme": theme,
+            }
+        else:
+            action = data.get("action", "walking")
+            if action not in ANIMATIONS:
+                raise RuntimeError(f"Unknown action: {action!r}")
+            duration = max(0.2, min(30.0, float(data.get("duration", 3))))
+            caption = data.get("caption") or None
+            render_animation(
+                action,
+                duration=duration,
+                fps=fps,
+                size=(w, h),
+                theme=theme,
+                caption=caption,
+                output=output,
+                workdir=frames_dir,
+            )
+            meta = {
+                "job_id": job_id,
+                "mode": "single",
+                "action": action,
+                "duration": duration,
+                "fps": fps,
+                "ratio": ratio,
+                "width": w,
+                "height": h,
+                "theme": theme,
+                "caption": caption,
+            }
+
+        # Free the intermediate PNG frames — only the MP4 needs to persist.
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir)
+
+        (job / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        return jsonify(ok=True, **meta, download=f"/api/download/{job_id}")
+
+    except Exception as e:
+        return jsonify(error=str(e)), 500
 
 
 @app.get("/health")
