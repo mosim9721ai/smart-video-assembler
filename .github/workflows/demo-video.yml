@@ -35,8 +35,12 @@ on:
 jobs:
   render:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -67,9 +71,31 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Commit rendered video back to branch
+        run: |
+          set -e
+          mkdir -p demos
+          cp demo_out/story.mp4 "demos/story.mp4"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add demos/story.mp4
+          if git diff --cached --quiet; then
+            echo "No change to commit"
+          else
+            git commit -m "demo(bot): refresh demos/story.mp4 from workflow run ${{ github.run_id }}"
+            for i in 1 2 3 4; do
+              if git push origin HEAD:${{ github.ref_name }}; then
+                break
+              fi
+              echo "push retry $i"
+              sleep $((2 ** i))
+              git pull --rebase origin ${{ github.ref_name }} || true
+            done
+          fi
+
       - name: Print job summary
         run: |
           echo "## Demo video ready" >> $GITHUB_STEP_SUMMARY
           echo "Style: ${{ github.event.inputs.style || 'cinematic' }} | Model: ${{ github.event.inputs.model || 'flux' }} | Ratio: ${{ github.event.inputs.ratio || '9:16' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Download the \`demo-story-video\` artifact from the Actions run summary." >> $GITHUB_STEP_SUMMARY
+          echo "Committed to \`demos/story.mp4\` on this branch; also uploaded as the \`demo-story-video\` artifact." >> $GITHUB_STEP_SUMMARY
