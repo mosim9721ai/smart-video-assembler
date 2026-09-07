@@ -1,0 +1,75 @@
+name: Generate demo story video
+
+on:
+  workflow_dispatch:
+    inputs:
+      style:
+        description: 'Image style'
+        required: true
+        default: 'cinematic'
+        type: choice
+        options: [cinematic, photorealistic, anime, storybook, 3d, watercolor, comic, minimalist]
+      model:
+        description: 'Pollinations model'
+        required: true
+        default: 'flux'
+        type: choice
+        options: [flux, flux-realism, flux-anime, flux-3d, turbo]
+      ratio:
+        description: 'Aspect ratio'
+        required: true
+        default: '9:16'
+        type: choice
+        options: ['9:16', '16:9', '1:1']
+      extra:
+        description: 'Extra style hint (e.g. warm sunset, 4k)'
+        required: false
+        default: ''
+  push:
+    branches:
+      - claude/stick-figure-video-tool-3k6c3n
+    paths:
+      - 'pollinations_images.py'
+      - '.github/workflows/demo-video.yml'
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Generate demo video
+        env:
+          STYLE: ${{ github.event.inputs.style || 'cinematic' }}
+          MODEL: ${{ github.event.inputs.model || 'flux' }}
+          RATIO: ${{ github.event.inputs.ratio || '9:16' }}
+          EXTRA: ${{ github.event.inputs.extra || '' }}
+        run: python .github/workflows/demo_run.py
+
+      - name: Upload video
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-story-video
+          path: |
+            demo_out/story.mp4
+            demo_out/*.jpg
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Print job summary
+        run: |
+          echo "## Demo video ready" >> $GITHUB_STEP_SUMMARY
+          echo "Style: ${{ github.event.inputs.style || 'cinematic' }} | Model: ${{ github.event.inputs.model || 'flux' }} | Ratio: ${{ github.event.inputs.ratio || '9:16' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Download the \`demo-story-video\` artifact from the Actions run summary." >> $GITHUB_STEP_SUMMARY
