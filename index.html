@@ -42,6 +42,56 @@ div class="grid">
 </section>
 
 <section class="card">
+<h1>🌸 FREE AI Story Video (Pollinations)</h1>
+<p class="muted">100% free — no API key, no signup, no billing. Uses Flux via Pollinations.ai. Har cue par ek image, timestamps ke hisaab se video.</p>
+
+<label>🎙️ Audio</label>
+<input id="frAudio" type="file" accept="audio/*">
+
+<label>📝 SRT</label>
+<input id="frSrt" type="file" accept=".srt,.txt,text/plain">
+
+<label>Style</label>
+<select id="frStyle">
+  <option value="cinematic">Cinematic</option>
+  <option value="photorealistic">Photorealistic</option>
+  <option value="anime">Anime</option>
+  <option value="storybook">Storybook</option>
+  <option value="3d">3D (Pixar-like)</option>
+  <option value="watercolor">Watercolor</option>
+  <option value="comic">Comic book</option>
+  <option value="minimalist">Minimalist</option>
+</select>
+
+<label>Extra style hint (optional)</label>
+<input id="frExtra" type="text" placeholder="e.g. warm sunset, indian village, 4k">
+
+<label>Model</label>
+<select id="frModel">
+  <option value="flux">Flux (best default)</option>
+  <option value="flux-realism">Flux Realism</option>
+  <option value="flux-anime">Flux Anime</option>
+  <option value="flux-3d">Flux 3D</option>
+  <option value="turbo">Turbo (fastest)</option>
+</select>
+
+<div class="grid">
+<div><label>Aspect ratio</label>
+<select id="frRatio">
+  <option value="9:16">9:16 Shorts/Reels</option>
+  <option value="16:9">16:9 YouTube</option>
+  <option value="1:1">1:1</option>
+</select></div>
+<div><label>FPS</label><select id="frFps"><option>30</option><option>60</option><option>24</option></select></div>
+</div>
+
+<button id="frGo">🚀 GENERATE FREE STORY VIDEO</button>
+<pre id="frStatus">Ready. SRT ke har cue par ek image banegi (60 cue max, ~5-10 sec per image).</pre>
+<video id="frPreview" controls playsinline></video>
+<a id="frDownload" class="button hidden" href="#">⬇️ SAVE MP4</a>
+</section>
+
+<section class="card">
 <h1>🪄 AI Story Video (Gemini)</h1>
 <p class="muted">SRT ke har cue ka text lo, Gemini se image banao, timestamps ke hisaab se video assemble ho jayegi. Aapki API key browser se seedha server ko jati hai — kabhi save nahi hoti.</p>
 
@@ -160,6 +210,28 @@ $('go').onclick=async()=>{
    $('download').href=data.download; $('download').classList.remove('hidden');
  }catch(e){$('bar').style.width='0%';$('status').textContent='❌ '+e.message}
  finally{$('go').disabled=false}
+};
+
+$('frGo').onclick=async()=>{
+  const a=$('frAudio').files[0], s=$('frSrt').files[0];
+  if(!a||!s){$('frStatus').textContent='❌ Audio aur SRT dono select karo.';return}
+  const fd=new FormData();
+  fd.append('audio',a); fd.append('srt',s);
+  fd.append('style',$('frStyle').value);
+  fd.append('model',$('frModel').value);
+  if($('frExtra').value.trim()) fd.append('extra',$('frExtra').value.trim());
+  fd.append('ratio',$('frRatio').value); fd.append('fps',$('frFps').value);
+  $('frGo').disabled=true;
+  $('frStatus').textContent='🎨 Free images generate ho rahi hain… (har cue ~5-10 sec)';
+  try{
+    const r=await fetch('/api/free-render',{method:'POST',body:fd});
+    const data=await r.json();
+    if(!r.ok||!data.ok) throw new Error(data.error||'Render failed');
+    $('frStatus').textContent=`✅ Ready! ${data.cues} cues, ${data.images} images, ${data.duration.toFixed(1)}s`;
+    $('frPreview').src=data.download; $('frPreview').classList.add('show');
+    $('frDownload').href=data.download; $('frDownload').classList.remove('hidden');
+  }catch(e){ $('frStatus').textContent='❌ '+e.message; }
+  finally{ $('frGo').disabled=false; }
 };
 
 $('aiGo').onclick=async()=>{

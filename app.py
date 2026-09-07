@@ -6,6 +6,12 @@ from stick_figure import ANIMATIONS, render_animation, render_sequence
 from gemini_images import (
     GeminiError, STYLE_PRESETS, generate_for_cues, DEFAULT_MODEL,
 )
+from pollinations_images import (
+    PollinationsError,
+    generate_for_cues as pollinations_generate_for_cues,
+    AVAILABLE_MODELS as POLLINATIONS_MODELS,
+    DEFAULT_MODEL as POLLINATIONS_DEFAULT_MODEL,
+)
 
 BASE = Path(__file__).resolve().parent
 WORK = BASE / "jobs"
@@ -471,6 +477,86 @@ def ai_render():
 
     except GeminiError as e:
         return jsonify(error=f"Gemini API: {e}"), 502
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+@app.post("/api/free-render")
+def free_render():
+    """Same as /api/ai-render but uses Pollinations.ai — no key needed.
+
+    Form fields: audio, srt, style, extra, ratio, fps, model.
+    """
+    job_id = uuid.uuid4().hex
+    job = WORK / job_id
+    job.mkdir()
+
+    try:
+        audio = request.files.get("audio")
+        srt = request.files.get("srt")
+        style = request.form.get("style", "cinematic")
+        extra = (request.form.get("extra") or "").strip() or None
+        ratio = request.form.get("ratio", "9:16")
+        fps = int(request.form.get("fps", "30"))
+        model = request.form.get("model", POLLINATIONS_DEFAULT_MODEL)
+
+        if not audio or not srt:
+            return jsonify(error="Audio aur SRT dono required hain."), 400
+        if style not in STYLE_PRESETS:
+            return jsonify(
+                error=f"Unknown style. Available: {sorted(STYLE_PRESETS)}"
+            ), 400
+        if model not in POLLINATIONS_MODELS:
+            return jsonify(
+                error=f"Unknown model. Available: {list(POLLINATIONS_MODELS)}"
+            ), 400
+        if fps not in (24, 30, 60):
+            fps = 30
+
+        audio_path = job / "audio"
+        srt_path = job / "captions.srt"
+        audio.save(audio_path)
+        srt.save(srt_path)
+
+        cues = parse_srt(
+            srt_path.read_text(encoding="utf-8-sig", errors="replace")
+        )
+        if not cues:
+            raise RuntimeError("SRT mein valid timestamps nahi mile.")
+
+        max_cues = int(os.environ.get("FREE_RENDER_MAX_CUES", "60"))
+        if len(cues) > max_cues:
+            raise RuntimeError(
+                f"SRT mein {len(cues)} cues hain — max allowed {max_cues}."
+            )
+
+        w, h = OUTPUT_SIZE.get(ratio, OUTPUT_SIZE["9:16"])
+        imgdir = job / "images"
+        imgdir.mkdir()
+
+        images = pollinations_generate_for_cues(
+            cues, out_dir=imgdir, style=style, extra=extra, model=model,
+            width=w, height=h,
+        )
+        if not images:
+            raise RuntimeError("Koi image generate nahi hui.")
+
+        output, meta = assemble_from_images(
+            job, cues, images, audio_path, ratio, fps
+        )
+        meta.update({
+            "job_id": job_id,
+            "mode": "free-render",
+            "style": style,
+            "model": model,
+            "provider": "pollinations.ai",
+        })
+        (job / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        return jsonify(ok=True, **meta, download=f"/api/download/{job_id}")
+
+    except PollinationsError as e:
+        return jsonify(error=f"Pollinations: {e}"), 502
     except Exception as e:
         return jsonify(error=str(e)), 500
 
