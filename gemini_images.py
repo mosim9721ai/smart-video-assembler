@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable
 
-DEFAULT_MODEL = "gemini-2.5-flash-image-preview"
+DEFAULT_MODEL = "gemini-2.5-flash-image"
 API_HOST = "https://generativelanguage.googleapis.com"
 
 STYLE_PRESETS = {
