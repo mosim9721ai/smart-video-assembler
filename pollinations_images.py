@@ -78,65 +78,76 @@ def _seed_from(text: str) -> int:
     return int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
 
 
+def _one_call(url: str, timeout: float) -> bytes:
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "smart-video-assembler/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+    if not data or len(data) < 512:
+        raise PollinationsError(
+            f"Response too small ({len(data)} bytes), likely an error"
+        )
+    return data
+
+
 def generate_image(
     prompt: str,
     width: int = 1024,
     height: int = 1024,
     model: str = DEFAULT_MODEL,
     seed: int | None = None,
-    timeout: float = 90.0,
-    retries: int = 2,
+    timeout: float = 120.0,
+    retries: int = 5,
 ) -> bytes:
-    """Fetch one image from Pollinations. Returns raw bytes (JPEG)."""
+    """Fetch one image from Pollinations. Returns raw bytes (JPEG).
+
+    Retries transient failures with exponential backoff, and rotates to a
+    new seed if the server keeps rejecting the current one.
+    """
     if not prompt.strip():
         raise PollinationsError("Empty prompt")
-    if seed is None:
-        seed = _seed_from(prompt)
+    base_seed = _seed_from(prompt) if seed is None else seed
 
     encoded = urllib.parse.quote(prompt, safe="")
-    qs = urllib.parse.urlencode({
-        "width": width,
-        "height": height,
-        "model": model,
-        "seed": seed,
-        "nologo": "true",
-        "enhance": "true",
-    })
-    url = f"{HOST}/prompt/{encoded}?{qs}"
-
     last_err: Exception | None = None
+
     for attempt in range(retries + 1):
+        # After the first failure, rotate the seed — Pollinations sometimes
+        # 500s on a specific (prompt, seed) pair but succeeds with another.
+        current_seed = (base_seed + attempt * 9973) % (2**31)
+        qs = urllib.parse.urlencode({
+            "width": width,
+            "height": height,
+            "model": model,
+            "seed": current_seed,
+            "nologo": "true",
+            "enhance": "true",
+        })
+        url = f"{HOST}/prompt/{encoded}?{qs}"
+
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "smart-video-assembler/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = resp.read()
-            if not data or len(data) < 512:
-                raise PollinationsError(
-                    f"Response too small ({len(data)} bytes), likely an error"
-                )
-            return data
+            return _one_call(url, timeout)
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                 last_err = PollinationsError(f"HTTP {e.code}")
-                time.sleep(2 ** attempt)
+                time.sleep(min(30, 3 + 2 ** attempt))
                 continue
             raise PollinationsError(f"HTTP {e.code}") from None
         except (urllib.error.URLError, TimeoutError) as e:
             if attempt < retries:
                 last_err = PollinationsError(f"Network: {e}")
-                time.sleep(2 ** attempt)
+                time.sleep(min(30, 3 + 2 ** attempt))
                 continue
             raise PollinationsError(f"Network: {e}") from None
-        except PollinationsError:
+        except PollinationsError as e:
             if attempt < retries:
-                time.sleep(2 ** attempt)
+                last_err = e
+                time.sleep(min(30, 3 + 2 ** attempt))
                 continue
             raise
 
-    raise last_err or PollinationsError("Unknown failure")
+    raise last_err or PollinationsError("Unknown failure after all retries")
 
 
 def generate_for_cues(
