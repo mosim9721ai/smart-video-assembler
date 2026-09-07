@@ -3,6 +3,9 @@ from pathlib import Path
 from flask import Flask, request, jsonify, send_file
 
 from stick_figure import ANIMATIONS, render_animation, render_sequence
+from gemini_images import (
+    GeminiError, STYLE_PRESETS, generate_for_cues, DEFAULT_MODEL,
+)
 
 BASE = Path(__file__).resolve().parent
 WORK = BASE / "jobs"
@@ -118,6 +121,83 @@ def run(cmd):
     if p.returncode != 0:
         raise RuntimeError(p.stdout[-8000:])
     return p.stdout
+
+
+def assemble_from_images(
+    job: Path,
+    cues: list[dict],
+    images: list[Path],
+    audio_path: Path,
+    ratio: str,
+    fps: int,
+) -> tuple[Path, dict]:
+    """Encode a video from per-cue images + audio using the same pipeline
+    the ZIP-upload path uses. Returns (output_path, meta)."""
+    w, h = OUTPUT_SIZE.get(ratio, OUTPUT_SIZE["9:16"])
+    vf = (
+        f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},setsar=1,format=yuv420p"
+    )
+
+    concat = []
+    for i, cue in enumerate(cues):
+        src = images[min(i, len(images) - 1)]
+        normalized = job / f"frame_{i:06d}.jpg"
+        run([
+            "ffmpeg", "-y",
+            "-threads", "1",
+            "-filter_threads", "1",
+            "-filter_complex_threads", "1",
+            "-i", str(src),
+            "-vf", vf,
+            "-frames:v", "1",
+            "-q:v", "3",
+            str(normalized),
+        ])
+        dur = max(0.05, cue["end"] - cue["start"])
+        concat.append((normalized, dur))
+
+    list_file = job / "concat.txt"
+    with open(list_file, "w", encoding="utf-8") as f:
+        for frame, dur in concat:
+            f.write(f"file '{frame.as_posix()}'\n")
+            f.write(f"duration {dur:.3f}\n")
+        f.write(f"file '{concat[-1][0].as_posix()}'\n")
+
+    output = job / "assembled_video.mp4"
+    run([
+        "ffmpeg", "-y",
+        "-threads", "1",
+        "-filter_threads", "1",
+        "-filter_complex_threads", "1",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(list_file),
+        "-i", str(audio_path),
+        "-r", str(fps),
+        "-vf", "format=yuv420p",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "28",
+        "-pix_fmt", "yuv420p",
+        "-threads:v", "1",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        "-movflags", "+faststart",
+        str(output),
+    ])
+
+    meta = {
+        "cues": len(cues),
+        "images": len(images),
+        "ratio": ratio,
+        "fps": fps,
+        "width": w,
+        "height": h,
+        "duration": cues[-1]["end"],
+    }
+    return output, meta
 
 
 @app.get("/")
@@ -285,6 +365,114 @@ def download(job_id):
         download_name="assembled_video.mp4",
         mimetype="video/mp4",
     )
+
+
+@app.get("/api/ai-render/styles")
+def ai_render_styles():
+    return jsonify(
+        styles=sorted(STYLE_PRESETS.keys()),
+        default_model=DEFAULT_MODEL,
+    )
+
+
+@app.post("/api/ai-render")
+def ai_render():
+    """Generate one image per SRT cue with Gemini, then assemble to video.
+
+    Form fields:
+      audio     (file, required)
+      srt       (file, required)
+      api_key   (string, required)   -- user's Gemini key, not stored
+      style     (string, optional)   -- one of STYLE_PRESETS
+      extra     (string, optional)   -- extra style hint
+      ratio     (string, optional)   -- 9:16 / 16:9 / 1:1
+      fps       (int, optional)      -- 24 / 30 / 60
+      model     (string, optional)   -- override the Gemini model
+    """
+    job_id = uuid.uuid4().hex
+    job = WORK / job_id
+    job.mkdir()
+
+    try:
+        audio = request.files.get("audio")
+        srt = request.files.get("srt")
+        api_key = (request.form.get("api_key") or "").strip()
+        style = request.form.get("style", "cinematic")
+        extra = (request.form.get("extra") or "").strip() or None
+        ratio = request.form.get("ratio", "9:16")
+        fps = int(request.form.get("fps", "30"))
+        model = request.form.get("model", DEFAULT_MODEL)
+
+        if not audio or not srt:
+            return jsonify(
+                error="Audio aur SRT dono required hain."
+            ), 400
+        if not api_key:
+            return jsonify(
+                error="Gemini API key chahiye. "
+                      "https://aistudio.google.com/apikey se lo."
+            ), 400
+        if style not in STYLE_PRESETS:
+            return jsonify(
+                error=f"Unknown style. Available: {sorted(STYLE_PRESETS)}"
+            ), 400
+        if fps not in (24, 30, 60):
+            fps = 30
+
+        audio_path = job / "audio"
+        srt_path = job / "captions.srt"
+        audio.save(audio_path)
+        srt.save(srt_path)
+
+        cues = parse_srt(
+            srt_path.read_text(encoding="utf-8-sig", errors="replace")
+        )
+        if not cues:
+            raise RuntimeError("SRT mein valid timestamps nahi mile.")
+
+        # Cap to avoid runaway API spend.
+        max_cues = int(os.environ.get("AI_RENDER_MAX_CUES", "60"))
+        if len(cues) > max_cues:
+            raise RuntimeError(
+                f"SRT mein {len(cues)} cues hain — max allowed {max_cues}. "
+                f"AI_RENDER_MAX_CUES env var se badhao."
+            )
+
+        imgdir = job / "images"
+        imgdir.mkdir()
+        images = generate_for_cues(
+            cues,
+            api_key=api_key,
+            out_dir=imgdir,
+            style=style,
+            extra=extra,
+            model=model,
+        )
+        if not images:
+            raise RuntimeError("Koi image generate nahi hui.")
+
+        output, meta = assemble_from_images(
+            job, cues, images, audio_path, ratio, fps
+        )
+
+        meta.update({
+            "job_id": job_id,
+            "mode": "ai-render",
+            "style": style,
+            "model": model,
+        })
+        (job / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        return jsonify(
+            ok=True,
+            **meta,
+            download=f"/api/download/{job_id}",
+        )
+
+    except GeminiError as e:
+        return jsonify(error=f"Gemini API: {e}"), 502
+    except Exception as e:
+        return jsonify(error=str(e)), 500
 
 
 STICK_RATIOS = {

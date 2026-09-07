@@ -1,9 +1,14 @@
 # Mobile Smart Video Assembler — Server Version
 
-Two tools in one Flask server:
+Three tools in one Flask server:
 
 1. **Audio + SRT + Images → MP4** — the original assembler.
-2. **Stick Figure Video Generator** — offline, no API, no account, no cost.
+2. **AI Story Video (Gemini)** — upload audio + SRT, and one image is
+   generated per cue using Google's `gemini-2.5-flash-image-preview`
+   ("Nano Banana"). The user supplies their own API key per request; the
+   server never stores it. Images are then held for the exact duration of
+   each cue and stitched with the audio.
+3. **Stick Figure Video Generator** — offline, no API, no account, no cost.
    Pick an action (walking, waving, dancing, jumping, running, thinking, idle)
    or chain several as a multi-scene story.
 
@@ -35,7 +40,47 @@ For a public mobile URL, deploy this Docker project to any service that supports
 ## Production note
 This is a single-worker baseline. For large/long jobs, use a job queue and object storage in a production deployment.
 
-## Tool 2: Stick Figure Video Generator
+## Tool 2: AI Story Video (Gemini)
+
+Get a Gemini API key at https://aistudio.google.com/apikey (works with a
+Google account; billing must be enabled on the project to use the image
+model at scale). In the web UI, open the **🪄 AI Story Video (Gemini)**
+card, upload audio + SRT, paste the key, pick a style, and click
+**GENERATE**.
+
+HTTP API:
+
+```
+POST /api/ai-render        (multipart/form-data)
+  audio     file (required)
+  srt       file (required)
+  api_key   string (required)  -- never stored
+  style     string             -- cinematic | photorealistic | anime |
+                                  storybook | 3d | watercolor | comic |
+                                  minimalist
+  extra     string             -- extra style hint appended to each prompt
+  ratio     string             -- 9:16 | 16:9 | 1:1  (default 9:16)
+  fps       int                -- 24 | 30 | 60      (default 30)
+  model     string             -- override the Gemini model
+
+GET  /api/ai-render/styles     -> {"styles":[...], "default_model":"..."}
+GET  /api/download/<job_id>    -> the rendered MP4
+```
+
+Sync rule matches Tool 1: SRT cue N → generated image N, held for that
+cue's duration. Cost scales linearly with the number of cues (one image
+call per cue). To guard against runaway spend, cue count is capped at 60
+by default; override with `AI_RENDER_MAX_CUES`.
+
+CLI helper (single image, no video):
+
+```
+export GEMINI_API_KEY=AIzaSy...
+python gemini_images.py "A stick figure standing on a mountain at sunrise" \
+    --style cinematic --out scene.png
+```
+
+## Tool 3: Stick Figure Video Generator
 
 Open the app in a browser and scroll to the **🤸 Stick Figure Video** card. Or use it from the command line:
 

@@ -42,6 +42,50 @@ div class="grid">
 </section>
 
 <section class="card">
+<h1>🪄 AI Story Video (Gemini)</h1>
+<p class="muted">SRT ke har cue ka text lo, Gemini se image banao, timestamps ke hisaab se video assemble ho jayegi. Aapki API key browser se seedha server ko jati hai — kabhi save nahi hoti.</p>
+
+<label>🎙️ Audio</label>
+<input id="aiAudio" type="file" accept="audio/*">
+
+<label>📝 SRT</label>
+<input id="aiSrt" type="file" accept=".srt,.txt,text/plain">
+
+<label>🔑 Gemini API Key</label>
+<input id="aiKey" type="password" placeholder="AIzaSy... (aistudio.google.com/apikey)" autocomplete="off">
+
+<label>Style</label>
+<select id="aiStyle">
+  <option value="cinematic">Cinematic</option>
+  <option value="photorealistic">Photorealistic</option>
+  <option value="anime">Anime</option>
+  <option value="storybook">Storybook</option>
+  <option value="3d">3D (Pixar-like)</option>
+  <option value="watercolor">Watercolor</option>
+  <option value="comic">Comic book</option>
+  <option value="minimalist">Minimalist</option>
+</select>
+
+<label>Extra style hint (optional)</label>
+<input id="aiExtra" type="text" placeholder="e.g. warm sunset lighting, 4k, indian village">
+
+<div class="grid">
+<div><label>Aspect ratio</label>
+<select id="aiRatio">
+  <option value="9:16">9:16 Shorts/Reels</option>
+  <option value="16:9">16:9 YouTube</option>
+  <option value="1:1">1:1</option>
+</select></div>
+<div><label>FPS</label><select id="aiFps"><option>30</option><option>60</option><option>24</option></select></div>
+</div>
+
+<button id="aiGo">🚀 GENERATE AI STORY VIDEO</button>
+<pre id="aiStatus">Ready. SRT ke har cue par ek image banegi (60 cue max).</pre>
+<video id="aiPreview" controls playsinline></video>
+<a id="aiDownload" class="button hidden" href="#">⬇️ SAVE MP4</a>
+</section>
+
+<section class="card">
 <h1>🤸 Stick Figure Video</h1>
 <p class="muted">100% offline. No API, no account, no cost — sirf server ka FFmpeg use hota hai.</p>
 
@@ -116,6 +160,28 @@ $('go').onclick=async()=>{
    $('download').href=data.download; $('download').classList.remove('hidden');
  }catch(e){$('bar').style.width='0%';$('status').textContent='❌ '+e.message}
  finally{$('go').disabled=false}
+};
+
+$('aiGo').onclick=async()=>{
+  const a=$('aiAudio').files[0], s=$('aiSrt').files[0], k=$('aiKey').value.trim();
+  if(!a||!s){$('aiStatus').textContent='❌ Audio aur SRT dono select karo.';return}
+  if(!k){$('aiStatus').textContent='❌ Gemini API key chahiye. aistudio.google.com/apikey';return}
+  const fd=new FormData();
+  fd.append('audio',a); fd.append('srt',s); fd.append('api_key',k);
+  fd.append('style',$('aiStyle').value);
+  if($('aiExtra').value.trim()) fd.append('extra',$('aiExtra').value.trim());
+  fd.append('ratio',$('aiRatio').value); fd.append('fps',$('aiFps').value);
+  $('aiGo').disabled=true;
+  $('aiStatus').textContent='🎨 Images generate ho rahi hain… (har cue ~5-10 sec)';
+  try{
+    const r=await fetch('/api/ai-render',{method:'POST',body:fd});
+    const data=await r.json();
+    if(!r.ok||!data.ok) throw new Error(data.error||'Render failed');
+    $('aiStatus').textContent=`✅ Ready! ${data.cues} cues, ${data.images} images, ${data.duration.toFixed(1)}s @ ${data.fps}fps`;
+    $('aiPreview').src=data.download; $('aiPreview').classList.add('show');
+    $('aiDownload').href=data.download; $('aiDownload').classList.remove('hidden');
+  }catch(e){ $('aiStatus').textContent='❌ '+e.message; }
+  finally{ $('aiGo').disabled=false; }
 };
 
 $('sfMode').onchange=()=>{
