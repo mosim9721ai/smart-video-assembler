@@ -8,57 +8,211 @@
 </head>
 <body>
 <main>
-<section class="card">
-<h1>🎬 Smart Video Assembler</h1>
-<p class="muted">Audio + SRT + numbered Images ZIP → server-side MP4</p>
 
-<label>🎙️ Audio</label>
-<input id="audio" type="file" accept="audio/*">
-
-<label>📝 SRT</label>
-<input id="srt" type="file" accept=".srt,.txt,text/plain">
-
-<label>🖼️ Images ZIP</label>
-<input id="images" type="file" accept=".zip,application/zip">
-
-div class="grid">
-<div><label>Aspect ratio</label>
-<select id="ratio"><option value="9:16">9:16 Shorts/Reels</option><option value="16:9">16:9 YouTube</option><option value="1:1">1:1</option></select></div>
-<div><label>FPS</label><select id="fps"><option>30</option><option>60</option><option>24</option></select></div>
+<div class="tabs">
+  <button class="tab active" data-tab="auto">✨ Auto (AI images)</button>
+  <button class="tab" data-tab="manual">📁 Manual (upload ZIP)</button>
 </div>
 
-<label>Image motion</label>
-<select id="motion"><option value="none">None — exact timing</option><option value="zoom">Slow zoom (coming in next build)</option></select>
+<!-- ============ AUTO MODE ============ -->
+<section class="card tab-panel" id="tab-auto">
+<h1>✨ Auto Video Assembler</h1>
+<p class="muted">Audio + SRT do — server har SRT cue ke liye Fal.ai (Flux) se image banata hai, phir video assemble karta hai.</p>
 
-<button id="go">🚀 GENERATE VIDEO</button>
-<div class="progress"><div id="bar"></div></div>
-<pre id="status">Ready.</pre>
-<video id="preview" controls playsinline></video>
-<a id="download" class="button hidden" href="#">⬇️ SAVE MP4</a>
+<label>🎙️ Audio</label>
+<input id="a_audio" type="file" accept="audio/*">
+
+<label>📝 SRT</label>
+<input id="a_srt" type="file" accept=".srt,.txt,text/plain">
+
+<label>🎨 Style hint <span class="muted">(sab prompts par append hota hai)</span></label>
+<input id="a_style" type="text" placeholder="e.g. cinematic anime, moody lighting, film grain, 4k">
+
+<label>🧾 Per-cue prompts <span class="muted">(optional — ek line per cue; blank rakhoge to SRT ka text use hoga)</span></label>
+<textarea id="a_prompts" rows="6" placeholder="A young farmer standing in a golden wheat field at sunrise&#10;Close-up of hands sowing seeds into dark soil&#10;Rain clouds gathering over village houses"></textarea>
+
+<div class="grid">
+  <div><label>Aspect ratio</label>
+    <select id="a_ratio">
+      <option value="9:16">9:16 Shorts/Reels</option>
+      <option value="16:9">16:9 YouTube</option>
+      <option value="1:1">1:1</option>
+    </select>
+  </div>
+  <div><label>FPS</label>
+    <select id="a_fps"><option>30</option><option>60</option><option>24</option></select>
+  </div>
+</div>
+
+<label>Image model</label>
+<select id="a_model">
+  <option value="fal-ai/flux/schnell">Flux Schnell — fastest / cheapest</option>
+  <option value="fal-ai/flux/dev">Flux Dev — better quality, slower</option>
+  <option value="fal-ai/flux-pro/v1.1">Flux Pro 1.1 — best quality</option>
+</select>
+
+<div class="grid">
+  <button id="a_go_full">🚀 Full render → MP4</button>
+  <button id="a_go_zip" class="secondary">🖼️ Only ZIP images</button>
+</div>
+
+<div class="progress"><div id="a_bar"></div></div>
+<pre id="a_status">Ready.</pre>
+<video id="a_preview" controls playsinline></video>
+<a id="a_download" class="button hidden" href="#">⬇️ SAVE MP4</a>
+</section>
+
+<!-- ============ MANUAL MODE ============ -->
+<section class="card tab-panel hidden" id="tab-manual">
+<h1>🎬 Manual Video Assembler</h1>
+<p class="muted">Audio + SRT + apna numbered images ZIP → MP4</p>
+
+<label>🎙️ Audio</label>
+<input id="m_audio" type="file" accept="audio/*">
+
+<label>📝 SRT</label>
+<input id="m_srt" type="file" accept=".srt,.txt,text/plain">
+
+<label>🖼️ Images ZIP</label>
+<input id="m_images" type="file" accept=".zip,application/zip">
+
+<div class="grid">
+  <div><label>Aspect ratio</label>
+    <select id="m_ratio">
+      <option value="9:16">9:16 Shorts/Reels</option>
+      <option value="16:9">16:9 YouTube</option>
+      <option value="1:1">1:1</option>
+    </select>
+  </div>
+  <div><label>FPS</label>
+    <select id="m_fps"><option>30</option><option>60</option><option>24</option></select>
+  </div>
+</div>
+
+<button id="m_go">🚀 GENERATE VIDEO</button>
+<div class="progress"><div id="m_bar"></div></div>
+<pre id="m_status">Ready.</pre>
+<video id="m_preview" controls playsinline></video>
+<a id="m_download" class="button hidden" href="#">⬇️ SAVE MP4</a>
 </section>
 
 <section class="card muted">
-<b>How sync works:</b> image 1 → SRT cue 1, image 2 → cue 2, etc. Each image stays on screen for that cue's exact timestamp. Extra images are ignored; if images are fewer than cues, the last image is held so the render does not break.
+<b>How sync works:</b> image 1 → SRT cue 1, image 2 → cue 2, etc. Each image stays on screen for that cue's exact timestamp. Extra images are ignored; if images are fewer than cues, the last image is held so the render never breaks.
 </section>
+
 </main>
+
 <script>
-const $=x=>document.getElementById(x);
-$('go').onclick=async()=>{
- const a=$('audio').files[0], s=$('srt').files[0], z=$('images').files[0];
- if(!a||!s||!z){$('status').textContent='❌ Audio, SRT aur ZIP select karo.';return}
- $('go').disabled=true; $('bar').style.width='5%'; $('status').textContent='Files server par upload ho rahi hain…';
- const fd=new FormData(); fd.append('audio',a); fd.append('srt',s); fd.append('images',z);
- fd.append('ratio',$('ratio').value); fd.append('fps',$('fps').value); fd.append('motion',$('motion').value);
- try{
-   const r=await fetch('/api/render',{method:'POST',body:fd});
-   const data=await r.json();
-   if(!r.ok||!data.ok) throw new Error(data.error||'Render failed');
-   $('bar').style.width='100%';
-   $('status').textContent=`✅ Ready! ${data.cues} SRT cues, ${data.images} images.`;
-   $('preview').src=data.download; $('preview').classList.add('show');
-   $('download').href=data.download; $('download').classList.remove('hidden');
- }catch(e){$('bar').style.width='0%';$('status').textContent='❌ '+e.message}
- finally{$('go').disabled=false}
+const $ = x => document.getElementById(x);
+
+// ---------- tabs ----------
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(x => x.classList.add('hidden'));
+    t.classList.add('active');
+    $('tab-' + t.dataset.tab).classList.remove('hidden');
+  };
+});
+
+// ---------- manual flow ----------
+$('m_go').onclick = async () => {
+  const a = $('m_audio').files[0], s = $('m_srt').files[0], z = $('m_images').files[0];
+  if (!a || !s || !z) { $('m_status').textContent = '❌ Audio, SRT aur ZIP select karo.'; return; }
+  $('m_go').disabled = true;
+  $('m_bar').style.width = '5%';
+  $('m_status').textContent = 'Server par upload ho raha hai…';
+
+  const fd = new FormData();
+  fd.append('audio', a); fd.append('srt', s); fd.append('images', z);
+  fd.append('ratio', $('m_ratio').value); fd.append('fps', $('m_fps').value);
+
+  try {
+    const r = await fetch('/api/render', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Render failed');
+    $('m_bar').style.width = '100%';
+    $('m_status').textContent = `✅ Ready! ${data.cues} cues, ${data.images} images.`;
+    $('m_preview').src = data.download; $('m_preview').classList.add('show');
+    $('m_download').href = data.download; $('m_download').classList.remove('hidden');
+  } catch (e) {
+    $('m_bar').style.width = '0%';
+    $('m_status').textContent = '❌ ' + e.message;
+  } finally {
+    $('m_go').disabled = false;
+  }
+};
+
+// ---------- auto flow: full pipeline ----------
+$('a_go_full').onclick = async () => {
+  const a = $('a_audio').files[0], s = $('a_srt').files[0];
+  if (!a || !s) { $('a_status').textContent = '❌ Audio aur SRT dono chahiye.'; return; }
+
+  $('a_go_full').disabled = true; $('a_go_zip').disabled = true;
+  $('a_bar').style.width = '5%';
+  $('a_status').textContent = 'Server par bhej raha hoon… Fal.ai se images generate ho rahi hain (isme thoda time lagega)…';
+
+  const fd = new FormData();
+  fd.append('audio', a); fd.append('srt', s);
+  fd.append('style', $('a_style').value);
+  fd.append('prompts_text', $('a_prompts').value);
+  fd.append('ratio', $('a_ratio').value);
+  fd.append('fps', $('a_fps').value);
+  fd.append('model', $('a_model').value);
+
+  try {
+    const r = await fetch('/api/auto-render', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Auto render failed');
+    $('a_bar').style.width = '100%';
+    $('a_status').textContent = `✅ Ready! ${data.cues} cues, ${data.images} AI images, model=${data.model}.`;
+    $('a_preview').src = data.download; $('a_preview').classList.add('show');
+    $('a_download').href = data.download; $('a_download').classList.remove('hidden');
+  } catch (e) {
+    $('a_bar').style.width = '0%';
+    $('a_status').textContent = '❌ ' + e.message;
+  } finally {
+    $('a_go_full').disabled = false; $('a_go_zip').disabled = false;
+  }
+};
+
+// ---------- auto flow: only ZIP ----------
+$('a_go_zip').onclick = async () => {
+  const s = $('a_srt').files[0];
+  if (!s) { $('a_status').textContent = '❌ SRT chahiye.'; return; }
+
+  $('a_go_full').disabled = true; $('a_go_zip').disabled = true;
+  $('a_bar').style.width = '5%';
+  $('a_status').textContent = 'Images generate ho rahi hain… (koi audio zaroori nahi)…';
+
+  const fd = new FormData();
+  fd.append('srt', s);
+  fd.append('style', $('a_style').value);
+  fd.append('prompts_text', $('a_prompts').value);
+  fd.append('ratio', $('a_ratio').value);
+  fd.append('model', $('a_model').value);
+
+  try {
+    const r = await fetch('/api/generate-images', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ error: 'Failed' }));
+      throw new Error(err.error || 'Image generation failed');
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    $('a_bar').style.width = '100%';
+    $('a_status').textContent = '✅ ZIP ready — download button use karo.';
+    $('a_download').href = url;
+    $('a_download').download = 'generated_images.zip';
+    $('a_download').textContent = '⬇️ SAVE IMAGES ZIP';
+    $('a_download').classList.remove('hidden');
+    $('a_preview').classList.remove('show');
+  } catch (e) {
+    $('a_bar').style.width = '0%';
+    $('a_status').textContent = '❌ ' + e.message;
+  } finally {
+    $('a_go_full').disabled = false; $('a_go_zip').disabled = false;
+  }
 };
 </script>
 </body>
