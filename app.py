@@ -34,12 +34,43 @@ FAL_IMAGE_SIZE = {
 }
 
 DEFAULT_FAL_MODEL = os.environ.get("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
-DEFAULT_FAL_TTS_MODEL = os.environ.get("FAL_TTS_MODEL", "fal-ai/kokoro/hindi")
-DEFAULT_FAL_TTS_VOICE = os.environ.get("FAL_TTS_VOICE", "hf_alpha")
+DEFAULT_FAL_TTS_MODEL = os.environ.get("FAL_TTS_MODEL", "auto")
+DEFAULT_FAL_TTS_VOICE = os.environ.get("FAL_TTS_VOICE", "auto")
 DEFAULT_FAL_LLM_MODEL = os.environ.get("FAL_LLM_MODEL", "fal-ai/any-llm")
 DEFAULT_FAL_LLM_SUBMODEL = os.environ.get(
     "FAL_LLM_SUBMODEL", "google/gemini-flash-1.5"
 )
+
+# TTS defaults picked automatically based on detected script language.
+# Each entry: (model_id, voice_id)
+LANG_TTS_DEFAULTS = {
+    "hi": ("fal-ai/kokoro/hindi", "hf_alpha"),
+    "en": ("fal-ai/kokoro/american-english", "am_michael"),
+}
+
+
+def detect_language(text):
+    """Return 'hi' if the script has significant Devanagari, else 'en'."""
+    devanagari = sum(1 for c in text if "ऀ" <= c <= "ॿ")
+    latin = sum(1 for c in text if c.isascii() and c.isalpha())
+    if devanagari and devanagari > latin * 0.3:
+        return "hi"
+    return "en"
+
+
+def resolve_tts(text, model_override, voice_override):
+    """Pick TTS model and voice: explicit override > env > language auto-detect."""
+    lang = detect_language(text)
+    default_model, default_voice = LANG_TTS_DEFAULTS.get(
+        lang, LANG_TTS_DEFAULTS["en"]
+    )
+    model = (model_override or "").strip()
+    if not model or model.lower() == "auto":
+        model = default_model
+    voice = (voice_override or "").strip()
+    if not voice or voice.lower() == "auto":
+        voice = default_voice
+    return model, voice, lang
 
 
 def parse_time(s):
@@ -229,7 +260,18 @@ def split_script(text, max_chars=180):
         if buf.strip():
             result.append(buf.strip())
 
-    return [c for c in result if c.strip()]
+    # Merge tiny / punctuation-only chunks into the previous chunk so a stray
+    # closing quote or bracket doesn't become its own TTS segment.
+    merged = []
+    for c in result:
+        c = c.strip()
+        if not c:
+            continue
+        if merged and (len(c) < 3 or re.fullmatch(r"[\W_]+", c)):
+            merged[-1] = (merged[-1] + " " + c).strip()
+        else:
+            merged.append(c)
+    return merged
 
 
 def tts_one_chunk(text, model, voice):
@@ -587,8 +629,9 @@ def api_script_to_video():
         style = request.form.get("style", "cinematic, natural lighting, film grain")
         ratio = request.form.get("ratio", "9:16")
         fps = int(request.form.get("fps", "30"))
-        voice = request.form.get("voice") or DEFAULT_FAL_TTS_VOICE
-        tts_model = request.form.get("tts_model") or DEFAULT_FAL_TTS_MODEL
+        voice_in = request.form.get("voice") or DEFAULT_FAL_TTS_VOICE
+        tts_model_in = request.form.get("tts_model") or DEFAULT_FAL_TTS_MODEL
+        tts_model, voice, lang = resolve_tts(script, tts_model_in, voice_in)
         image_model = request.form.get("image_model") or DEFAULT_FAL_MODEL
         llm_model = request.form.get("llm_model") or DEFAULT_FAL_LLM_MODEL
         llm_submodel = request.form.get("llm_submodel") or DEFAULT_FAL_LLM_SUBMODEL
@@ -680,6 +723,8 @@ def api_script_to_video():
             "width": w,
             "height": h,
             "tts_model": tts_model,
+            "tts_voice": voice,
+            "language": lang,
             "image_model": image_model,
             "llm_model": llm_model,
             "llm_submodel": llm_submodel,
