@@ -80,13 +80,33 @@ FAL_LLM_SUBMODEL=google/gemini-flash-1.5
 
 Get a key at <https://fal.ai/dashboard/keys>.
 
-## Run locally
-Install FFmpeg and Python 3.12+, then:
+## Run it — three ways
+
+### 1) Google Colab (easiest — no install)
+
+Open [`colab_run.ipynb`](colab_run.ipynb) in Colab
+([direct link](https://colab.research.google.com/github/mosim9721ai/smart-video-assembler/blob/claude/google-ai-studio-pro-api-9arv38/colab_run.ipynb)),
+paste your Fal.ai key + script, click `Runtime → Run all`. Your MP4 downloads in 1-5 min.
+
+### 2) Local CLI (single command)
+
+```
+pip install -r requirements.txt      # once
+cp .env.example .env                  # then edit FAL_KEY
+python cli.py samples/holding_your_breath.txt
+```
+Outputs `output.mp4` + `output.srt` in the current folder. Override with env vars:
+```
+STYLE="dark cinematic, 4k" RATIO=16:9 python cli.py my_script.txt
+```
+
+### 3) Web UI (run the Flask server)
+
 ```
 pip install -r requirements.txt
 python app.py
 ```
-Open `http://YOUR-SERVER-IP:8080` on the phone.
+Open `http://YOUR-SERVER-IP:8080` — three tabs: Script-only (A→Z), Auto (AI images), Manual.
 
 ## Docker
 ```
