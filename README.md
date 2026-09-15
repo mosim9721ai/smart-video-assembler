@@ -32,11 +32,22 @@ Extra images are ignored. If there are fewer images than cues, the last image is
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| POST | `/api/script-to-video` | **A → Z: script text → TTS + LLM prompts + Flux → MP4 + SRT** |
 | POST | `/api/render` | Manual — audio + SRT + images ZIP → MP4 |
 | POST | `/api/generate-images` | SRT + prompts/style → ZIP of AI images |
 | POST | `/api/auto-render` | Audio + SRT + prompts/style → MP4 (one shot) |
 | GET  | `/api/download/<job_id>` | Fetch the assembled MP4 |
+| GET  | `/api/srt/<job_id>` | Fetch the generated SRT |
+| GET  | `/api/meta/<job_id>` | Fetch job metadata (chunks, prompts, timings) |
 | GET  | `/health` | ffmpeg + Fal config status |
+
+`/api/script-to-video` form fields:
+- `script` (text) or `script_file` (`.txt` upload) — the script itself
+- `style` — image style hint (default: cinematic / natural lighting / film grain)
+- `voice` — Fal TTS voice id (default: `hf_alpha` for Kokoro Hindi)
+- `ratio` — `9:16` | `16:9` | `1:1`
+- `fps` — `24` | `30` | `60`
+- `image_model`, `tts_model`, `llm_model`, `llm_submodel` — override defaults
 
 Form fields for the Fal-powered endpoints:
 - `srt` (file, required)
@@ -54,7 +65,17 @@ Copy `.env.example` to `.env` and fill in:
 
 ```
 FAL_KEY=<your fal.ai key, format KEY_ID:KEY_SECRET>
+
+# Image generation
 FAL_IMAGE_MODEL=fal-ai/flux/schnell
+
+# TTS (for /api/script-to-video)
+FAL_TTS_MODEL=fal-ai/kokoro/hindi
+FAL_TTS_VOICE=hf_alpha
+
+# LLM (for auto visual-prompt generation)
+FAL_LLM_MODEL=fal-ai/any-llm
+FAL_LLM_SUBMODEL=google/gemini-flash-1.5
 ```
 
 Get a key at <https://fal.ai/dashboard/keys>.

@@ -10,9 +10,57 @@
 <main>
 
 <div class="tabs">
-  <button class="tab active" data-tab="auto">✨ Auto (AI images)</button>
+  <button class="tab active" data-tab="script">🪄 Script only (A → Z)</button>
+  <button class="tab" data-tab="auto">✨ Auto (AI images)</button>
   <button class="tab" data-tab="manual">📁 Manual (upload ZIP)</button>
 </div>
+
+<!-- ============ SCRIPT-ONLY MODE ============ -->
+<section class="card tab-panel" id="tab-script">
+<h1>🪄 Script → Video</h1>
+<p class="muted">Sirf apna script daalo. Server khud: sentences chunk karega → LLM se image prompts banayega → TTS se voiceover generate karega → Flux se scene images banayega → sab kuch assemble karke MP4 dega.</p>
+
+<label>📜 Script</label>
+<textarea id="s_script" rows="10" placeholder="Namaste doston, aaj hum baat karenge…"></textarea>
+
+<label>🎨 Style hint <span class="muted">(sab images pe apply hoga)</span></label>
+<input id="s_style" type="text" value="cinematic, warm golden hour, film grain, 4k, photorealistic" placeholder="cinematic, warm golden hour, film grain, 4k">
+
+<div class="grid">
+  <div><label>Aspect ratio</label>
+    <select id="s_ratio">
+      <option value="9:16">9:16 Shorts/Reels</option>
+      <option value="16:9">16:9 YouTube</option>
+      <option value="1:1">1:1</option>
+    </select>
+  </div>
+  <div><label>FPS</label>
+    <select id="s_fps"><option>30</option><option>60</option><option>24</option></select>
+  </div>
+</div>
+
+<div class="grid">
+  <div><label>TTS voice</label>
+    <input id="s_voice" type="text" value="hf_alpha" placeholder="voice id (e.g. hf_alpha)">
+  </div>
+  <div><label>Image model</label>
+    <select id="s_model">
+      <option value="fal-ai/flux/schnell">Flux Schnell — fastest</option>
+      <option value="fal-ai/flux/dev">Flux Dev — better</option>
+      <option value="fal-ai/flux-pro/v1.1">Flux Pro 1.1 — best</option>
+    </select>
+  </div>
+</div>
+
+<button id="s_go">🚀 GENERATE FULL VIDEO</button>
+<div class="progress"><div id="s_bar"></div></div>
+<pre id="s_status">Ready. Script paste karo, phir button dabao.</pre>
+<video id="s_preview" controls playsinline></video>
+<div class="grid">
+  <a id="s_download" class="button hidden" href="#">⬇️ SAVE MP4</a>
+  <a id="s_srt" class="button secondary hidden" href="#">⬇️ SAVE SRT</a>
+</div>
+</section>
 
 <!-- ============ AUTO MODE ============ -->
 <section class="card tab-panel" id="tab-auto">
@@ -173,6 +221,45 @@ $('a_go_full').onclick = async () => {
     $('a_status').textContent = '❌ ' + e.message;
   } finally {
     $('a_go_full').disabled = false; $('a_go_zip').disabled = false;
+  }
+};
+
+// ---------- script-only flow ----------
+$('s_go').onclick = async () => {
+  const script = $('s_script').value.trim();
+  if (!script) { $('s_status').textContent = '❌ Script daalo.'; return; }
+
+  $('s_go').disabled = true;
+  $('s_bar').style.width = '5%';
+  $('s_status').textContent = '⏳ Sending to server… script chunk hoke TTS + LLM + image gen chal raha hai. Ye 1-5 minute le sakta hai depending on script length.';
+
+  const fd = new FormData();
+  fd.append('script', script);
+  fd.append('style', $('s_style').value);
+  fd.append('ratio', $('s_ratio').value);
+  fd.append('fps', $('s_fps').value);
+  fd.append('voice', $('s_voice').value);
+  fd.append('image_model', $('s_model').value);
+
+  try {
+    const r = await fetch('/api/script-to-video', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Script-to-video failed');
+    $('s_bar').style.width = '100%';
+    $('s_status').textContent =
+      `✅ Done! ${data.chunks} scenes, ${data.duration.toFixed(1)}s, ` +
+      `${data.image_model.split('/').pop()} + ${data.tts_model.split('/').pop()}.`;
+    $('s_preview').src = data.download;
+    $('s_preview').classList.add('show');
+    $('s_download').href = data.download;
+    $('s_download').classList.remove('hidden');
+    $('s_srt').href = data.srt;
+    $('s_srt').classList.remove('hidden');
+  } catch (e) {
+    $('s_bar').style.width = '0%';
+    $('s_status').textContent = '❌ ' + e.message;
+  } finally {
+    $('s_go').disabled = false;
   }
 };
 
