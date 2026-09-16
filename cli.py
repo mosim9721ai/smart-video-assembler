@@ -35,6 +35,7 @@ from app import (  # noqa: E402
 BACKEND = os.environ.get("BACKEND", "fal").lower()
 if BACKEND == "free":
     from free_backend import (  # noqa: E402
+        IMAGE_CONCURRENCY,
         generate_one_image,
         generate_visual_prompts,
         resolve_tts,
@@ -47,6 +48,7 @@ else:
         resolve_tts,
         tts_one_chunk,
     )
+    IMAGE_CONCURRENCY = 4
 
 
 def main():
@@ -115,13 +117,15 @@ def main():
         done["img"] += 1
         print(f"   🖼️  image {done['img']}/{total}")
 
-    print(f"🎨 Fal.ai — {total} images + {total} audio (4 workers)…")
+    print(f"🔊 TTS: {total} chunks (4 workers)…")
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futs = []
-        for i, c in enumerate(chunks):
-            futs.append(ex.submit(do_tts, i, c))
-        for i, p in enumerate(prompts):
-            futs.append(ex.submit(do_image, i, p))
+        futs = [ex.submit(do_tts, i, c) for i, c in enumerate(chunks)]
+        for f in as_completed(futs):
+            f.result()
+
+    print(f"🖼️  Images: {total} scenes ({IMAGE_CONCURRENCY} worker(s))…")
+    with ThreadPoolExecutor(max_workers=IMAGE_CONCURRENCY) as ex:
+        futs = [ex.submit(do_image, i, p) for i, p in enumerate(prompts)]
         for f in as_completed(futs):
             f.result()
 

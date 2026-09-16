@@ -9,9 +9,14 @@ import json
 import os
 import re
 import tempfile
+import time
 import urllib.parse
 
 import requests
+
+# Free image gen is one request at a time — Pollinations' anonymous tier rate
+# limits hard. cli.py reads this to throttle image gen.
+IMAGE_CONCURRENCY = 1
 
 # Pollinations dims — larger than Fal presets since it's free
 RATIO_DIMS = {
@@ -48,9 +53,9 @@ def resolve_tts(text, model_override, voice_override):
 
 
 def generate_one_image(model, prompt, ratio):
-    """Image via Pollinations. `model` is ignored (or passed as pollinations model)."""
+    """Image via Pollinations, with retries. Pollinations' anonymous tier
+       throttles heavily — 429/502/503 retries are expected."""
     w, h = RATIO_DIMS.get(ratio, RATIO_DIMS["9:16"])
-    # Pollinations prompt cap ~2000 chars; trim if needed.
     encoded = urllib.parse.quote(prompt[:1800])
     seed = abs(hash(prompt)) % 1_000_000
     poll_model = "flux"
@@ -60,9 +65,24 @@ def generate_one_image(model, prompt, ratio):
         f"https://image.pollinations.ai/prompt/{encoded}"
         f"?width={w}&height={h}&seed={seed}&nologo=true&model={poll_model}"
     )
-    r = requests.get(url, timeout=180)
-    r.raise_for_status()
-    return r.content
+
+    last_err = None
+    for attempt in range(6):
+        try:
+            r = requests.get(url, timeout=180)
+            if r.status_code == 200 and r.content and len(r.content) > 500:
+                return r.content
+            if r.status_code in (429, 500, 502, 503, 504):
+                retry_after = r.headers.get("Retry-After")
+                wait = int(retry_after) if retry_after and retry_after.isdigit() else min(60, 8 * (2 ** attempt))
+                last_err = f"HTTP {r.status_code}"
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            last_err = str(e)
+            time.sleep(min(60, 5 * (attempt + 1)))
+    raise RuntimeError(f"Pollinations image failed after 6 tries: {last_err}")
 
 
 def tts_one_chunk(text, model, voice):
