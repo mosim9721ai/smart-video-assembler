@@ -28,13 +28,25 @@ from app import (  # noqa: E402
     assemble_video,
     audio_duration,
     fmt_srt_time,
-    generate_one_image,
-    generate_visual_prompts,
-    resolve_tts,
     run,
     split_script,
-    tts_one_chunk,
 )
+
+BACKEND = os.environ.get("BACKEND", "fal").lower()
+if BACKEND == "free":
+    from free_backend import (  # noqa: E402
+        generate_one_image,
+        generate_visual_prompts,
+        resolve_tts,
+        tts_one_chunk,
+    )
+else:
+    from app import (  # noqa: E402
+        generate_one_image,
+        generate_visual_prompts,
+        resolve_tts,
+        tts_one_chunk,
+    )
 
 
 def main():
@@ -52,8 +64,10 @@ def main():
     ratio = os.environ.get("RATIO", "9:16")
     fps = int(os.environ.get("FPS", "30"))
 
-    if not os.environ.get("FAL_KEY"):
-        print("❌ FAL_KEY not set. Copy .env.example to .env and fill it in.")
+    print(f"🔧 Backend: {BACKEND}")
+    if BACKEND != "free" and not os.environ.get("FAL_KEY"):
+        print("❌ FAL_KEY not set. Copy .env.example to .env and fill it in,")
+        print("   OR run with BACKEND=free (no key needed).")
         sys.exit(1)
 
     if not script_path.exists():

@@ -80,13 +80,22 @@ FAL_LLM_SUBMODEL=google/gemini-flash-1.5
 
 Get a key at <https://fal.ai/dashboard/keys>.
 
+## Backends
+
+Two backends are wired in. Pick with the `BACKEND` env var (or the Colab dropdown):
+
+| `BACKEND` | Cost | Setup | Image / TTS |
+|-----------|------|-------|-------------|
+| `free` (default in Colab) | 🆓 Zero | Nothing | Pollinations.ai (Flux) + Edge-TTS |
+| `fal` | ~$0.05 / video | Needs `FAL_KEY` with balance | Fal.ai (Flux Schnell/Dev/Pro) + Kokoro |
+
 ## Run it — three ways
 
 ### 1) Google Colab (easiest — no install)
 
 Open [`colab_run.ipynb`](colab_run.ipynb) in Colab
 ([direct link](https://colab.research.google.com/github/mosim9721ai/smart-video-assembler/blob/claude/google-ai-studio-pro-api-9arv38/colab_run.ipynb)),
-paste your Fal.ai key + script, click `Runtime → Run all`. Your MP4 downloads in 1-5 min.
+pick a backend + paste your script, click `Runtime → Run all`. Your MP4 downloads in 2-5 min.
 
 ### 2) Local CLI (single command)
 
