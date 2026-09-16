@@ -20,11 +20,11 @@ RATIO_DIMS = {
     "1:1": (1024, 1024),
 }
 
-# Edge-TTS voices per detected language.
-# BrianMultilingual is a deep dramatic voice — great for narration.
+# TTS voice per detected language.
+# For gTTS these are language codes; for edge-tts they'd be voice ids.
 FREE_TTS_VOICES = {
-    "hi": "hi-IN-MadhurNeural",
-    "en": "en-US-BrianMultilingualNeural",
+    "hi": "hi",
+    "en": "en",
 }
 
 
@@ -66,22 +66,62 @@ def generate_one_image(model, prompt, ratio):
 
 
 def tts_one_chunk(text, model, voice):
-    """TTS via edge-tts. `model` is ignored — edge-tts is one system."""
-    import edge_tts  # imported lazily so the module still loads if not installed
+    """TTS via gTTS by default (reliable, no auth); edge-tts as fallback if
+       voice looks like an edge-tts voice id and gTTS fails."""
+    lang = _voice_to_lang(voice)
 
-    async def _gen():
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp_path = tmp.name
-        try:
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(tmp_path)
-            with open(tmp_path, "rb") as f:
-                return f.read()
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+    # Primary: gTTS — uses Google Translate audio; no key, very reliable.
+    try:
+        from gtts import gTTS
+        import io
+        buf = io.BytesIO()
+        gTTS(text=text, lang=lang, slow=False).write_to_fp(buf)
+        buf.seek(0)
+        return buf.read()
+    except Exception as e:
+        print(f"⚠️  gTTS failed ({e}); trying edge-tts…")
 
-    return asyncio.run(_gen())
+    # Fallback: edge-tts (may 403 on some IPs)
+    try:
+        import edge_tts
+
+        # If we don't have a full edge-tts voice id, map to a reasonable one.
+        et_voice = voice if voice and "-" in voice else EDGE_TTS_FALLBACK.get(lang, EDGE_TTS_FALLBACK["en"])
+
+        async def _gen():
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                await edge_tts.Communicate(text, et_voice).save(tmp_path)
+                with open(tmp_path, "rb") as f:
+                    return f.read()
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        return asyncio.run(_gen())
+    except Exception as e:
+        raise RuntimeError(f"Both gTTS and edge-tts failed for TTS. Last: {e}")
+
+
+def _voice_to_lang(voice):
+    """Best-effort language code from either 'en'/'hi' or 'en-US-...' voice ids."""
+    if not voice:
+        return "en"
+    v = voice.strip().lower()
+    if v in ("auto", ""):
+        return "en"
+    if len(v) == 2:
+        return v
+    if "-" in v:
+        return v.split("-")[0]
+    return "en"
+
+
+EDGE_TTS_FALLBACK = {
+    "en": "en-US-BrianMultilingualNeural",
+    "hi": "hi-IN-MadhurNeural",
+}
 
 
 def generate_visual_prompts(chunks, style, llm_model, submodel):
